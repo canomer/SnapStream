@@ -89,19 +89,26 @@ def download_youtube_video(url, file_format="mp4"):
         ydl.download([url])
 
 def download_youtube_playlist(playlist_url, file_format="mp4"):
+    import os
     import yt_dlp
+    import traceback
+    from datetime import datetime, timezone
     from urllib.parse import urlparse, parse_qs
+
     folder = "youtube_videos"
     os.makedirs(folder, exist_ok=True)
+    debug_file = os.path.join(folder, "youtube-debug.txt")
 
+    # normalize playlist url if user pasted watch?list=...
     parsed = urlparse(playlist_url)
     qs = parse_qs(parsed.query)
     if 'list' in qs:
         real_playlist_id = qs['list'][0]
         playlist_url = f"https://www.youtube.com/playlist?list={real_playlist_id}"
 
+    # Downloader options (used per-video)
     if file_format == "mp3":
-        ydl_opts = {
+        downloader_opts = {
             'format': 'bestaudio/best',
             'outtmpl': os.path.join(folder, '%(playlist_title)s/%(title)s.%(ext)s'),
             'quiet': False,
@@ -113,7 +120,7 @@ def download_youtube_playlist(playlist_url, file_format="mp4"):
             }],
         }
     else:
-        ydl_opts = {
+        downloader_opts = {
             'format': 'bestvideo[ext=mp4][vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=1080]/best[ext=mp4][vcodec^=avc1]',
             'outtmpl': os.path.join(folder, '%(playlist_title)s/%(title)s.%(ext)s'),
             'merge_output_format': 'mp4',
@@ -121,14 +128,71 @@ def download_youtube_playlist(playlist_url, file_format="mp4"):
             'nooverwrites': True,
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
+                # yt-dlp expects the misspelled 'preferedformat'
                 'preferedformat': 'mp4',
             }],
         }
+
+    # Extractor options: sadece playlist yapısını al, videoların tamamını çözmeye çalışmasın
+    extractor_opts = {
+        'quiet': False,
+        'ignoreerrors': True,        # erişilemeyen/age-restricted entry'leri atla
+        'extract_flat': 'in_playlist'  # videoların tam metadata'sını çekme, sadece listeler/ids al
+    }
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([playlist_url])
+        extractor = yt_dlp.YoutubeDL(extractor_opts)
+        playlist_info = extractor.extract_info(playlist_url, download=False)
     except Exception as e:
-        print(f"Playlist Download Error: {e}\nGimme a valid Playlist. It should be in this format: https://www.youtube.com/playlist?list=PL... ")
+        with open(debug_file, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now(timezone.utc).isoformat()}] PLAYLIST-EXTRACTION-ERROR: {playlist_url}\n")
+            f.write(f"Error: {str(e)}\n")
+            f.write(traceback.format_exc() + "\n\n")
+        print(f"Playlist extraction failed: {e}. Logged to {debug_file}")
+        return
+
+    entries = playlist_info.get('entries') or []
+    total = len(entries)
+    print(f"Playlist '{playlist_info.get('title')}' içinde {total} öğe bulundu. İndirme başlıyor...")
+
+    # Her bir entry için tek tek indir
+    for idx, entry in enumerate(entries, start=1):
+        if not entry:
+            with open(debug_file, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now(timezone.utc).isoformat()}] ENTRY NONE: index={idx}\n\n")
+            print(f"[{idx}/{total}] Entry None, atlanıyor.")
+            continue
+
+        # extract_flat ile gelen entry'de 'url' genellikle video id olabilir; güvenli şekilde url oluştur
+        video_id = entry.get('id') or entry.get('url')
+        if not video_id:
+            with open(debug_file, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now(timezone.utc).isoformat()}] NO-ID: entry={entry}\n\n")
+            print(f"[{idx}/{total}] ID yok, atlanıyor.")
+            continue
+
+        # video_url oluştur
+        if video_id.startswith("http"):
+            video_url = video_id
+        else:
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        print(f"[{idx}/{total}] İndiriliyor: {video_url}")
+
+        # her video için yeni downloader örneği (ayrıştırma ve indirme farklı ayarlarla)
+        try:
+            dl = yt_dlp.YoutubeDL(downloader_opts)
+            dl.download([video_url])
+        except Exception as e:
+            with open(debug_file, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now(timezone.utc).isoformat()}] VIDEO-ERROR: {video_url}\n")
+                f.write(f"Flat-title (if present): {entry.get('title')}\n")
+                f.write(f"Error: {str(e)}\n")
+                f.write(traceback.format_exc() + "\n\n")
+            print(f"[{idx}/{total}] Hata: {e}. Detaylar {debug_file} dosyasına yazıldı. Devam ediliyor.")
+            continue
+
+    print("İndirme işlemi tamamlandı.")
 
 # ----------------- INSTAGRAM -----------------
 # --------- UPDATED Instagram bookmarks downloader ----------
