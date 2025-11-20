@@ -4,7 +4,7 @@ A basic Python-based CLI tool designed for personal media archival from YouTube,
 
 SnapStream provides basic usage for downloading videos, extracting audio, and managing personal content collections with support for various formats, authentication methods, and batch processing capabilities.
 
-leverages the power of `yt-dlp` (a fork of youtube-dl) and custom API implementations to help users download and organize their favorite content from multiple social media platforms.
+leverages the power of ```yt-dlp``` (a fork of youtube-dl) and custom API implementations to help users download and organize their favorite content from multiple social media platforms.
 
 ### Platform Support
 - **YouTube**: Single videos and entire playlists with quality control (max 1080p) in mp4 or mp3 formats
